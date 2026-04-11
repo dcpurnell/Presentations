@@ -3,6 +3,7 @@
 Thumbs.db
 
 # Editor files
+.vs/
 .vscode/
 *.swp
 *.swo
@@ -11,3 +12,9 @@ Thumbs.db
 *.env
 *.key
 *.pem
+*.key
+*.pem
+
+# Project directories
+ollama-sql-faststart/
+demo/00-talking-points.sql

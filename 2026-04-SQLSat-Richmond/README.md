@@ -15,89 +15,82 @@ SQL Server 2025 introduces native vector data types and AI-assisted capabilities
 To follow along or reproduce the demos on your own machine, you'll need:
 
 - **Docker Desktop** - [Download](https://www.docker.com/get-started/)
-- **SQL Server 2025 (CU1+)** - [Docker image](https://hub.docker.com/r/microsoft/mssql-server) (tag: `2025-latest`)
-- **Ollama** - [Download](https://ollama.com/) or `brew install ollama` (macOS)
-- **OpenSSL** - `brew install openssl` (macOS) or included with most Linux distros
-- **nginx** - `brew install nginx` (macOS) or `apt install nginx` (Linux)
 - **VS Code** with the SQL Server (mssql) extension
-- **Ollama models:**
-  - `ollama pull nomic-embed-text` (768 dimensions, 137M parameters)
-  - `ollama pull gte-qwen2-1.5b-instruct` (1536 dimensions, 1.5B parameters)
+- **Git** (to clone the setup repo)
+
+That's it! The Docker Compose approach (below) handles SQL Server 2025, Ollama, nginx, SSL certs, and model downloads automatically.
 
 ## Session Agenda
 
-1. **Docker and container setup** - Pull SQL Server 2025 image, spin up container, connect from VS Code
-2. **Ollama setup with OpenSSL & nginx** - Install Ollama, generate self-signed cert, configure nginx reverse proxy (Ollama listens HTTP, SQL Server requires HTTPS)
-3. **Embedding and vector setup** - CREATE EXTERNAL MODEL, AI_GENERATE_EMBEDDINGS, VECTOR data type, float16 vs float32
-4. **VECTOR_DISTANCE and VECTOR_SEARCH** - Distance metrics, DiskANN vector index, execution plan comparison
-5. **Practical uses of embeddings** - Hybrid search (vector + WHERE clauses), embedding sync strategies
-6. **DBA considerations** - Storage planning, capacity impact, DiskANN limitations, preview feature status
-7. **The evolving role of the DBA** - How the DBA role has shifted and what vector search means for your career
+1. **Fast Setup Repo** - Pull SQL Server 2025 image, spin up container, connect from VS Code
+2. **Embedding and vector setup** - CREATE EXTERNAL MODEL, AI_GENERATE_EMBEDDINGS, VECTOR data type, float16 vs float32
+3. **VECTOR_DISTANCE and VECTOR_SEARCH** - Distance metrics, DiskANN vector index, execution plan comparison
+4. **Practical uses of embeddings** - Hybrid search (vector + WHERE clauses), embedding sync strategies
+5. **DBA considerations** - Storage planning, capacity impact, DiskANN limitations, preview feature status
+6. **The evolving role of the DBA** - How the DBA role has shifted and what vector search means for your career
 
 ## Folder Structure
 
-```
+```text
 2026-04-SQLSat-Richmond/
 +-- README.md            <- You are here
-+-- demos/               <- T-SQL and PowerShell demo scripts
-+-- setup/               <- Docker, Ollama, nginx, and OpenSSL setup instructions
-|   +-- macos-setup.md   <- macOS (Homebrew) setup guide
-|   +-- windows-setup.md <- Windows setup (links to Nocentino's repo)
-+-- slides/              <- Slide deck (posted after the session)
-+-- resources/           <- Reference links and supplementary materials
++-- demos/               <- T-SQL scripts and markdown files
++-- images/              <- Anti-slide deck
++-- setup/               <- Additional setup steps
 ```
 
-## Quick Start
+## Quick Start (Docker Compose)
 
-### 1. Start SQL Server 2025 in Docker
+The fastest way to get everything running — SQL Server 2025, Ollama, nginx HTTPS proxy, and SSL certs — in one command using [Nocentino's ollama-sql-faststart](https://github.com/nocentino/ollama-sql-faststart):
 
 ```bash
-docker run -d \
-  --name sqlserver2025 \
-  -e "ACCEPT_EULA=Y" \
-  -e "MSSQL_SA_PASSWORD=YourStrong!Pass123" \
-  -p 1433:1433 \
-  -m 4g \
-  -v sqlserver_data:/var/opt/mssql \
-  mcr.microsoft.com/mssql/server:2025-latest
+git clone https://github.com/nocentino/ollama-sql-faststart.git
+cd ollama-sql-faststart
+docker compose up --detach
 ```
 
-### 2. Start Ollama and pull models
+This starts six services:
 
-```bash
-ollama serve &
-ollama pull nomic-embed-text
-ollama pull gte-qwen2-1.5b-instruct
-```
+| Service | Purpose | Port |
+| --------- | --------- | ------ |
+| `sql1` | SQL Server 2025 | 1433 |
+| `ollama` | Ollama model server | 11434 |
+| `model-web` | nginx reverse proxy (HTTPS) | 443 |
+| `config` | Self-signed SSL cert generator | — |
+| `model-puller` | Auto-pulls nomic-embed-text | — |
+| `sql-tools` | Enables external REST endpoints | — |
 
-### 3. Set up the HTTPS proxy
+**Connection info:** `localhost,1433` / sa / `S0methingS@Str0ng!`
 
-See [setup/macos-setup.md](setup/macos-setup.md) for full instructions using OpenSSL + nginx.
+### Add Full Text Search to Linux SQL25 Container
+
+See [setup/linux-fts-setup.md](setup/linux-fts-setup.md) for detailed instructions.
 
 **Architecture:**
+
+```text
+SQL Server 2025 (sql1, port 1433)
+    -> HTTPS to model-web (nginx, port 443)
+        -> HTTP to ollama (port 11434)
 ```
-SQL Server 2025 (Docker, port 1433)
-    -> HTTPS request to localhost:443
-        -> nginx (TLS termination)
-            -> HTTP proxy to localhost:11434
-                -> Ollama (local embedding model)
-```
+
+### Scaling: Load-Balanced Ollama
+
+For production workloads with GPUs, nginx can load-balance across multiple Ollama instances:
+
+- [Scaling SQL Server 2025 Vector Search with Load-Balanced Ollama (Nocentino)](https://www.nocentino.com/posts/2025-09-27-scaling-ollama-load-balancing)
 
 ## Embedding Models Used
 
 | Model | Dimensions | Parameters | License |
-|-------|-----------|------------|---------|
+| ------- | ----------- | ------------ | --------- |
 | nomic-embed-text | 768 | 137M | Apache 2.0 |
-| gte-qwen2-1.5b-instruct | 1536 | 1.5B | Apache 2.0 |
 
 ## Vector Column Storage
 
 | Model | Dimensions | float32 (bytes/row) | float16 (bytes/row) |
-|-------|-----------|---------------------|---------------------|
+| ------- | ----------- | --------------------- | --------------------- |
 | nomic-embed-text | 768 | 3,072 | 1,536 |
-| gte-qwen2-1.5b-instruct | 1536 | 6,144 | 3,072 |
-
-Note: 768d x float32 = 1536d x float16 = 3,072 bytes (same storage, different tradeoff)
 
 ## Resources
 
@@ -119,7 +112,7 @@ Note: 768d x float32 = 1536d x float16 = 3,072 bytes (same storage, different tr
 
 ### Video / Podcast
 
-- [SQL Server 2025 YouTube Playlist (Ben Weissman & Anthony Nocentino)](https://www.youtube.com/playlist?list=PLnbFVhkPvSdXqhh0F_x6UjHLgcOnKwJge)
+- [SQL Server 2025 YouTube Playlist (Ben Weissman & Anthony Nocentino #benthony)](https://www.youtube.com/playlist?list=PLnbFVhkPvSdXqhh0F_x6UjHLgcOnKwJge)
 - [SQL Down Under Show 94 - Ben Weissman](https://blog.greglow.com/2026/02/11/sql-down-under-show-94-with-guest-ben-weissman-discussing-vectors-rest-and-ai-in-sql-server-2025/)
 
 ### Tutorials
@@ -143,8 +136,6 @@ Note: 768d x float32 = 1536d x float16 = 3,072 bytes (same storage, different tr
 
 ### The Evolving DBA Role
 
-- [How the DBA Role is Changing (2018) - Curated SQL](https://curatedsql.com/2018/01/02/how-the-dba-role-is-changing/)
-- [How the Role of the DBA is Changing in 2022 - DBTA](https://www.dbta.com/Editorial/News-Flashes/How-the-Role-of-the-DBA-is-Changing-in-2022-151756.aspx)
 - [The Evolution of the DBA - DBTA](https://www.dbta.com/Editorial/Think-About-It/The-Evolution-of-the-DBA-More-Than-Just-a-Keeper-of-Databases-170939.aspx)
 - [Bad News DBAs: We Are All Developers Now - Kendra Little](https://kendralittle.com/2026/02/09/bad-news-dbas-we-are-all-developers-now/)
 - [The Ever-Changing Role of the DBA in 2026 - DBTA](https://www.dbta.com/Editorial/News-Flashes/The-Ever-Changing-Role-of-the-Database-Administrator-in-2026-173903.aspx)
